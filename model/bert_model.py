@@ -6,6 +6,7 @@ from transformers import AutoTokenizer, AutoModel
 
 from dataset import DepressionDataset
 
+
 class BertModelforBaseline(nn.Module):
     def __init__(self, args, tokenizer, bert_model):
         super(BertModelforBaseline, self).__init__()
@@ -21,9 +22,9 @@ class BertModelforBaseline(nn.Module):
 def get_batch_bert_embedding(bert_model, inputs, trainable=False):
     if not trainable:
         with torch.no_grad():
-            output = bert_model(**inputs)
+            output = bert_model(inputs)
     else:
-        output = bert_model(**inputs)
+        output = bert_model(inputs)
 
     return output['last_hidden_state']
 

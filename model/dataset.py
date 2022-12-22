@@ -61,7 +61,6 @@ class DepressionDataset(Dataset):
             self.labels = [label_from_example(example.label) for example in examples]
             self.texts = texts
 
-            assert print(examples), 'print error'
 
             self.encodings = tokenizer.batch_encode_plus(
                 [(example.text_a, example.text_b) if example.text_b else example.text_a for example in examples],

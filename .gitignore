@@ -1,6 +1,7 @@
 **/dataset/
 **/cache/
 
+**/*.txt
 **/*.zip
 **/*.json
 

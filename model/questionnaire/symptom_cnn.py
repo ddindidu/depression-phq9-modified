@@ -1,9 +1,23 @@
-import torch
+import torch, sys
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
+from transformers import (
+    AutoTokenizer,
+    AutoModel,
+    get_linear_schedule_with_warmup,
+)
+from tqdm import tqdm
+
+sys.path.insert(0, './')
+sys.path.insert(0, './../')
+from bert_model import BertModelforBaseline, get_batch_bert_embedding
+from dataset import DepressionDataset
+
+
 
 class SymptomCNN(nn.Module):
-    def __init__(self, embedding_dim=768, n_filters = 1, filter_sizes = (2, 3, 4, 5, 6), output_dim = 2, dropout=0.2, pool='max'):
+    def __init__(self, embedding_dim=768, n_filters=1, filter_sizes=(2, 3, 4, 5, 6), output_dim=1, dropout=0.2, pool='max'):
         # =================================================
         # ARGUMENTS
         # - embedding_dim (int): embedding dimension of bert output (default: 768)
@@ -37,6 +51,8 @@ class SymptomCNN(nn.Module):
             self.fc = nn.Linear(len(self.filter_sizes) * self.n_filters, self.output_dim)
 
         self.dropout = nn.Dropout(self.dropout_prob)
+        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=1)
 
         # initialize weight
         for conv_layer in self.convs:
@@ -86,8 +102,104 @@ class SymptomCNN(nn.Module):
         output = self.fc(concat)   # (b, n_filters*len(filter_sizes)) -> (b, output_dim)
 
         if self.output_dim == 1:
-            output = F.sigmoid(output)
+            output = self.sigmoid(output)
         else:
-            output = F.softmax(output, dim=1)
+            output = self.softmax(output)
 
         return output, concat
+
+
+if __name__ == '__main__':
+    from train import get_args
+
+    args = get_args()
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name_or_path,
+        cache_dir=args.cache_dir,
+    )
+
+    bert_model = BertModelforBaseline(
+        args,
+        tokenizer=AutoTokenizer.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+        ),
+        bert_model=AutoModel.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+        ),
+    )
+
+    train_dataset = DepressionDataset(
+        args=args,
+        mode='train',
+        tokenizer=tokenizer,
+    )
+    epochs = 3
+    batch_size = 32
+    # Load Data
+    train_dl = DataLoader(
+        dataset=train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=True,
+    )
+
+    symptom_model = SymptomCNN(filter_sizes=(2, 3))
+    loss_fn = nn.BCELoss()
+
+    device = torch.device("cuda")
+    bert_model.cuda()
+    symptom_model.cuda()
+
+    optimizer = torch.optim.AdamW(
+        symptom_model.parameters(),
+        lr=args.lr,
+        betas=args.betas,
+        eps=args.eps,
+        weight_decay=args.weight_decay,
+    )
+
+
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=args.warmup_steps,
+        num_training_steps=epochs * (train_dataset.num_data / batch_size),
+    )
+
+    for epoch_i in range(epochs):
+        total_loss = 0
+        loss_for_logging = 0
+        for step, data in enumerate(tqdm(train_dl, desc='train', mininterval=0.01, leave=True), 0):
+            inputs = {
+                "input_ids": data['input_ids'].to(device),
+                "attention_mask": data['attention_mask'].to(device),
+                "token_type_ids": data['token_type_ids'].to(device),
+            }
+            labels = data['labels'].to(device) # (b)
+
+            bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=True)  # (batch, MAX_SEQUENCE_LEN, embedding_dim)
+
+            symptom_output, symptom_hidden = symptom_model(bert_output) # (b, 1), (b, 5)
+            preds = [[1] if prob.item() > 0.5 else [0] for prob in symptom_output]
+
+            loss = loss_fn(symptom_output.to(torch.float32), labels.unsqueeze(1).to(torch.float32))
+            total_loss += loss.item()
+            loss_for_logging += loss.item()
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+
+            #break
+
+        # epoch ends
+        # print results
+        print("EPOCH {}".format(epoch_i))
+        print("Total train loss: {}".format(total_loss/len(train_dl)))
+
+    import IPython;
+    IPython.embed();
+    exit(1)

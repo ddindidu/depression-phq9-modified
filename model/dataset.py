@@ -81,7 +81,7 @@ class DepressionDataset(Dataset):
     
 
     def __getitem__(self,idx):
-        item = {key: torch.tensor(val[idx]) for key, val in self.features.items()}
+        item = {key: val[idx].clone().detach() for key, val in self.features.items()}
         return item
 
     def get_labels(self):

@@ -8,6 +8,24 @@ from transformers import AutoTokenizer
 from utils import generate_examples
 
 
+class SymptomDataset(Dataset):
+    def __init__(self, args, mode='train', tokenizer=None):
+        self.args = args
+        self.mode = mode
+
+        cached_features_file = os.path.join(
+            args.cache_dir if args.cache_dir is not None else args.data_dir,
+            "cached_symptom_{}_{}_{}_{}".format(
+                args.task_name,
+                mode,
+                tokenizer.__class__.__name__,
+                str(args.max_seq_length),
+            )
+        )
+
+        
+
+
 class DepressionDataset(Dataset):
     def __init__(self, args, mode='train', tokenizer=None):
         self.args=args

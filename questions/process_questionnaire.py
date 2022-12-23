@@ -6,11 +6,13 @@ def read_json(args):
     file_name = ''
     if args.task_name == 'bipolar':
         file_name = 'questions.json'
-    else:   # depression, bpd, anxiety
+    else:
+        # task_name == depression, bpd, anxiety
         file_name = 'questions2.json'
 
     data_path = os.path.join(data_path, file_name)
     assert os.path.exists(data_path), "DATA_PATH DOESN'T EXIST!"
+
     with open(data_path, 'r') as f:
         datas = json.load(f)
 
@@ -20,7 +22,6 @@ def read_json(args):
             for txt in datas[label]:
                 texts.append(txt)
                 labels.append(label)
-
     return texts, labels
 
 

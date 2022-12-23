@@ -146,15 +146,17 @@ def save_cp_steps(args, batch_size, steps, model, optimizer, scheduler, tokenize
     torch.save(tokenizer, save_dir_path+'tokenizer.json')
 
 
-
 def load_tokenizer(path):
     return torch.load(path+'tokenizer.json')
+
 
 def load_model(path):
     return torch.load(path+'model.bin')
 
+
 def load_optimizer(path):
     return torch.load(path+'optimizer.pt')
+
 
 def load_scheduler(path, optimizer, warmup_steps, num_training_steps):
     scheduler = get_linear_schedule_with_warmup(
@@ -167,5 +169,13 @@ def load_scheduler(path, optimizer, warmup_steps, num_training_steps):
     return scheduler
 
 
-
+def get_symptom_num(task_name):
+    if task_name == 'depression':
+        return 9
+    elif task_name == 'bpd':
+        return 9
+    elif task_name == 'bipolar':
+        return 3
+    elif task_name == 'anxiety':
+        return 7
 

@@ -14,7 +14,7 @@ sys.path.insert(0, './')
 sys.path.insert(0, './../')
 from bert_model import BertModelforBaseline, get_batch_bert_embedding
 from dataset import DepressionDataset
-from symptom_cnn import SymptomCNN
+from questionnaire.symptom_cnn import SymptomCNN
 
 class QuestionnaireModel(nn.Module):
     def __init__(self,
@@ -25,9 +25,8 @@ class QuestionnaireModel(nn.Module):
                  output_dim=1,
                  dropout=0.2,
                  pool='max'):
-
+        super(QuestionnaireModel, self).__init__()
         self.num_symptoms = num_symptoms
-
         self.question_models = nn.ModuleList(
             [SymptomCNN(embedding_dim,
                         n_filters,
@@ -91,6 +90,7 @@ class QuestionnaireModel(nn.Module):
 
         return symptom_scores, sym_labels, symptom_vectors
 
+
 if __name__ == '__main__':
     from train import get_args
 
@@ -118,17 +118,16 @@ if __name__ == '__main__':
         mode='train',
         tokenizer=tokenizer,
     )
-    epochs = 3
-    batch_size = 32
+
     # Load Data
     train_dl = DataLoader(
         dataset=train_dataset,
-        batch_size=batch_size,
+        batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
     )
 
-    question_model = QuestionnaireModel(kernel_size=(2))
+    question_model = QuestionnaireModel(num_symptoms=9, filter_sizes=(2,))
     loss_fn = nn.BCELoss()
 
     device = torch.device("cuda")
@@ -146,10 +145,10 @@ if __name__ == '__main__':
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=args.warmup_steps,
-        num_training_steps=epochs * (train_dataset.num_data / batch_size),
+        num_training_steps=args.epochs * (train_dataset.num_data / args.batch_size),
     )
 
-    for epoch_i in range(epochs):
+    for epoch_i in range(args.epochs):
         total_loss = 0
         loss_for_logging = 0
         for step, data in enumerate(tqdm(train_dl, desc='train', mininterval=0.01, leave=True), 0):
@@ -162,10 +161,10 @@ if __name__ == '__main__':
 
             bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=True)  # (batch, MAX_SEQUENCE_LEN, embedding_dim)
 
-            symptom_scores, symptom_labels, symptom_hidden = question_model(bert_output, labels) # (b, 1), (b, 5)
-            preds = [[1] if prob.item() > 0.5 else [0] for prob in symptom_output]
+            symptom_scores, symptom_labels, symptom_hidden = question_model(bert_output, labels) # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+            #preds = [[1] if prob.item() > 0.5 else [0] for prob in symptom_output]
 
-            loss = loss_fn(symptom_output.to(torch.float32), labels.unsqueeze(1).to(torch.float32))
+            loss = loss_fn(symptom_scores.to(torch.float32), symptom_labels.to(torch.float32).to(device))
             total_loss += loss.item()
             loss_for_logging += loss.item()
 
@@ -174,7 +173,7 @@ if __name__ == '__main__':
             scheduler.step()
 
 
-            #break
+            break
 
         # epoch ends
         # print results

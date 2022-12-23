@@ -23,9 +23,8 @@ from tqdm import tqdm
 from sklearn.metrics import (classification_report, f1_score, precision_score,
                              recall_score, accuracy_score, confusion_matrix)
 
-
-from dataset import DepressionDataset
-from utils import save_cp_epochs, format_time, compute_metrics, print_result, get_symptom_num
+from dataset import DepressionDataset, SymptomDataset
+from utils import save_cp, format_time, compute_metrics, print_result, get_symptom_num
 from bert_model import BertModelforBaseline, get_batch_bert_embedding
 from questionnaire.questionnaire_model import QuestionnaireModel
 
@@ -36,7 +35,7 @@ def get_args():
     # initialization
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument('--gpu_id', type=str, default="0")
-    parser.add_argument('--output_dir', type=str, default='./output_models/{}/{}/{}/{}/')
+    parser.add_argument('--output_dir', type=str, default='./checkpoints')
     parser.add_argument('--log_dir', type=str, default='./logs')
     parser.add_argument("--cache_dir", type=str, default="./cache")
     parser.add_argument("--data_path", type=str, default="./dataset/{}/{}/{}.json")
@@ -95,7 +94,7 @@ def main(args):
     )
 
     # Prepare data
-    train_dataset = DepressionDataset(
+    train_dataset = SymptomDataset(
         args=args,
         mode='train',
         tokenizer=tokenizer,
@@ -123,9 +122,13 @@ def main(args):
     )
 
     question_model = QuestionnaireModel(
-        num_symptoms = get_symptom_num(args.task_name),
-        filter_sizes = args.kernel_size,
+        num_symptoms=get_symptom_num(args.task_name),
+        filter_sizes=args.kernel_size,
     )
+
+    assert print("BERT MODEL PARAMS: {}".format(bert_model.num_parameters()))
+    assert print("QUESTION MODEL PARAMS: {}".format(question_model.num_parameters()))
+
     bert_model.cuda()
     question_model.cuda()
 
@@ -157,13 +160,10 @@ def main(args):
 
         # train starts
         print('Training...')
-        #all_preds = []
-        #all_labels = []
         total_loss = 0.0
         loss_for_logging = 0.0
 
         for step, data in enumerate(tqdm(train_dl, desc='train', mininterval=0.01, leave=True), 0):
-
             inputs = {
                 "input_ids": data['input_ids'].to(device),
                 "attention_mask": data['attention_mask'].to(device),
@@ -173,26 +173,26 @@ def main(args):
 
             # foward
             bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=True)
-            symptom_scores, symptom_labels, symptom_hidden = question_model(bert_output,
-                                                                            labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+            symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
+                                                                                    labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
 
             loss = loss_fn(symptom_scores.to(torch.float32), symptom_labels.to(torch.float32).to(device))
             total_loss += loss.item()
             loss_for_logging += loss.item()
 
             loss.backward()
-            #torch.nn.utils.clip_grad_norm_(bert_model.parameters(), 1.0)
+            # torch.nn.utils.clip_grad_norm_(bert_model.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(question_model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
 
             # logging
-            # if step % args.logging_steps == 0 and not step == 0:
-            #    writer.add_scalar('Train/loss', (loss_for_logging / args.logging_steps), total_train_step)
-            #    loss_for_logging = 0
+            if step % args.logging_steps == 0 and not step == 0:
+                writer.add_scalar('Train/loss', (loss_for_logging / args.logging_steps), total_train_step)
+                loss_for_logging = 0
 
-            #    elapsed = format_time(time.time() - t0)
-                # print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.    Loss: {}'.format(step, len(train_dl), elapsed, loss))
+            elapsed = format_time(time.time() - t0)
+            print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.    Loss: {}'.format(step, len(train_dl), elapsed, loss))
 
             # save checkpoint
             """
@@ -214,21 +214,20 @@ def main(args):
         # epoch ends
         # print results
         print("total train loss: {}".format(total_loss / len(train_dl)))
-        #train_result = compute_metrics(labels=all_labels, preds=all_preds)
-        #print_result(train_result)
+        # train_result = compute_metrics(labels=all_labels, preds=all_preds)
+        # print_result(train_result)
         print("  Train epoch took: {:}".format(format_time(time.time() - t0)))
 
         # save checkpoint
-        '''
-        if epoch_i == 0 or epoch_i == 9:
-            save_cp(args, args.batch_size, epoch_i,
-                    0,
-                    model,
-                    optimizer,
-                    scheduler,
-                    tokenizer
-                    )
-        '''
+        save_cp(args,
+                args.batch_size,
+                epoch_i,
+                question_model,
+                optimizer,
+                scheduler,
+                tokenizer
+                )
+
     print("")
     print("Training complete")
 
@@ -237,4 +236,6 @@ if __name__ == '__main__':
     from train_question_model import get_args
 
     args = get_args()
+    args.num_labels = get_symptom_num(args.task_name)
+
     main(args)

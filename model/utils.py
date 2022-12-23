@@ -91,6 +91,25 @@ def print_result(test_result):
 		print('  Average {}:\t{}'.format(name, round(value*100, 4)))
 
 
+def save_cp(args, batch_size, epochs, model, optimizer, scheduler, tokenizer):
+    save_dir_path = os.path.join(args.output_dir,   # './checkpoints'
+                                 '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
+                                     'symptoms',
+                                     args.task_name,
+                                     args.model_name_or_path,
+                                     batch_size,
+                                     epochs)
+                                 )
+
+    if not os.path.exists(save_dir_path):
+        os.makedirs(save_dir_path)
+
+    print('*** Save checkpoints at {}'.format(save_dir_path))
+    torch.save(model, save_dir_path + 'model.bin')
+    torch.save(optimizer, save_dir_path + 'optimizer.pt')
+    torch.save(scheduler.state_dict(), save_dir_path + 'scheduler.pt')
+    torch.save(tokenizer, save_dir_path + 'tokenizer.json')
+
 
 def save_cp_epochs(args, batch_size, epochs, model, optimizer, scheduler, tokenizer):
     if args.train_portion == 100:

@@ -76,7 +76,7 @@ class QuestionnaireModel(nn.Module):
         for batch_ind, symp_no in enumerate(labels):
             # if symptom number is '2',
             # sym_labels becomes [0, 0, 1, 0, ..., 0]
-            sym_labels[batch_ind, int(symp_no)] = 1
+            sym_labels[batch_ind, symp_no] = 1
         sym_labels = sym_labels.unsqueeze(-1)   # (b, num_symp, 1)
 
         res_sym_prob, res_sym_hidden = [], []

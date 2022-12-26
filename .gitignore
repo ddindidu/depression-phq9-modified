@@ -1,7 +1,9 @@
 **/dataset/
 **/cache/
 **/logs/
+**/checkpoints
 
+**/*.pt
 **/*.txt
 **/*.zip
 **/*.json

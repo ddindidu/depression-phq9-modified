@@ -92,7 +92,7 @@ class QuestionnaireModel(nn.Module):
 
 
 if __name__ == '__main__':
-    from train import get_args
+    from train_question_model import get_args
 
     args = get_args()
 

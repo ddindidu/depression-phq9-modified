@@ -126,8 +126,10 @@ def main(args):
         filter_sizes=args.kernel_size,
     )
 
-    assert print("BERT MODEL PARAMS: {}".format(bert_model.num_parameters()))
-    assert print("QUESTION MODEL PARAMS: {}".format(question_model.num_parameters()))
+    def count_parameter(model):
+        return sum(p.numel() for p in model.parameters())
+    print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))#, "ERROR in PARAMS COUNTING"
+    print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
 
     bert_model.cuda()
     question_model.cuda()
@@ -219,14 +221,15 @@ def main(args):
         print("  Train epoch took: {:}".format(format_time(time.time() - t0)))
 
         # save checkpoint
-        save_cp(args,
-                args.batch_size,
-                epoch_i,
-                question_model,
-                optimizer,
-                scheduler,
-                tokenizer
-                )
+        if (epoch_i+1 % 5) == 0:
+            save_cp(args,
+                    args.batch_size,
+                    epoch_i,
+                    question_model,
+                    optimizer,
+                    scheduler,
+                    tokenizer
+                    )
 
     print("")
     print("Training complete")

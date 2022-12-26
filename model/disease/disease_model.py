@@ -17,26 +17,35 @@ from dataset import DepressionDataset
 from questionnaire.questionnaire_model import QuestionnaireModel
 
 class DiseaseModel(nn.Module):
-    def __init__(self, ):
-        super().__init__(hidden_dim= 5, n_filters=50, filter_sizes=(2, 3, 4, 5, 6), output_dim=1, dropout=0.2, pool='k-max', max_k = 5)
+    def __init__(self, hidden_dim=5, n_filters=50, filter_sizes=(2, 3, 4, 5, 6), output_dim=1, dropout=0.2, num_symptom=None, pool='k-max', k=5):
+        super().__init__()
 
         self.hidden_dim = hidden_dim
         self.n_filters = n_filters
         self.filter_sizes = filter_sizes
         self.output_dim = 1
-        self.dropout_p = droupout
+        self.dropout_p = dropout
         self.pool = pool
-        self.k_max_pool = max_k
-
+        self.output_dim = output_dim
+        self.max_k = []
         self.convs = nn.ModuleList(
             [nn.Conv2d(in_channels=1, out_channels=self.n_filters, kernel_size=(fs, self.hidden_dim)) for fs in self.filter_sizes]
         )
 
         # Fully Connected Layer
         if self.pool == 'k-max':
-            self.fc = nn.Linear(len(self.filter_sizes) * self.n_filters * 5, self.output_dim)
+            for fs in filter_sizes:
+                H = num_symptom - fs + 1
+                self.max_k.append(k) if k <= H else self.max_k.append(H)
+            total_k = sum(self.max_k)
+            self.fc = nn.Linear(total_k * self.n_filters, self.output_dim)
+
         elif self.pool == 'mix':
-            self.fc = nn.Linear(len(self.filter_sizes) * self.n_filters * 10, self.output_dim)
+            for fs in filter_sizes:
+                H = num_symptom - fs + 1
+                self.max_k.append(k) if k <= H else self.max_k.append(H)
+            total_k = sum(self.max_k)
+            self.fc = nn.Linear(total_k * 2 * self.n_filters, self.output_dim)
         else:
             self.fc = nn.Linear(len(self.filter_sizes) * self.n_filters, self.output_dim)
 
@@ -61,28 +70,28 @@ class DiseaseModel(nn.Module):
         #
         #   OUTPUT
         #   - output: Probability vector for presence of the symptom
-        #               (batch_size, output_dim)
+        #               (BATCH_SIZE, output_dim)
         #   - concat: hidden layer of symptom model
         #               for max pool, (b, max_k * n_filters * len(filter_sizes))
         # ====================================
         question_model_output = question_model_output.unsqueeze(1)  # (BATCH_SIZE, 1, NUM_SYMPTOM, HIDDEN_DIM)
-        conved = [F.relu(conv(question_model_output)).squeeze(3) for conv in self.convs]  # [(b, n_filters, H) * 5]
-                                                                                    # H = seq_len - kernel_size(fs) + 1
+        conved = [F.relu(conv(question_model_output)).squeeze(3) for conv in self.convs]  # [(b, out_channel (n_filters), H) * len(filter_sizes)]
+                                                                                        # H = NUM_SYMPTOM - kernel_size(fs) + 1
         if self.pool == 'max':
             pooled = [F.max_pool1d(conv, conv.shape[2]).squeeze(2) for conv in conved]
         elif self.pool == 'k-max':
             batch_size = question_model_output.size(0)
-            pooled = [conv.topk(self.k_max_pool, dim=2)[0].view(batch_size, -1) for conv in conved] # [(b, max_k * (n_filters) * len(filter_sizes)]
+            pooled = [conv.topk(tk, dim=2)[0].view(batch_size, -1) for conv, tk in zip(conved, self.max_k)] # [(b, tk * out_channels) * len(filter_sizes)]
         elif self.pool == 'mix':
             batch_size = question_model_output.size(0)
-            pooled = [torch.cat([conv.topk(self.k_max_pool, dim=2)[0].view(batch_size, -1),
-                                 conv.topk(self.k_max_pool, dim=2, largest=False)[0].view(batch_size, -1)], dim=1) for conv in conved]
+            pooled = [torch.cat([conv.topk(tk, dim=2)[0].view(batch_size, -1),
+                                 conv.topk(tk, dim=2, largest=False)[0].view(batch_size, -1)], dim=1) for conv, tk in zip(conved, self.max_k)]
         elif self.pool == 'avg':
             pooled = [F.avg_pool1d(conv, conv.shape[2]).squeeze(2) for conv in conved]
         else:
             raise ValueError('This pooling method is not supported.')
 
-        concat = torch.cat(pooled, dim=1)  # (b,  max_k * n_filters * len(filter_sizes))
+        concat = torch.cat(pooled, dim=1)  # (b,  total_k * n_filters)
         concat = self.dropout(concat)
         output = self.fc(concat)  # (b, max_k * n_filters*len(filter_sizes)) -> (b, output_dim)
 

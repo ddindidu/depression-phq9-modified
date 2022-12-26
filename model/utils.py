@@ -91,14 +91,18 @@ def print_result(test_result):
 		print('  Average {}:\t{}'.format(name, round(value*100, 4)))
 
 
-def save_cp(args, batch_size, epochs, model, optimizer, scheduler, tokenizer):
+def save_cp(args, model_name, batch_size, epochs, model, optimizer, scheduler, tokenizer):
+    if model_name == 'question_model':
+        m_name = 'symptoms'
+    elif model_name == 'disease_model':
+        m_name = 'disease'
     save_dir_path = os.path.join(args.output_dir,   # './checkpoints'
                                  '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
-                                     'symptoms',
+                                     m_name,
                                      args.task_name,
                                      args.model_name_or_path,
                                      batch_size,
-                                     epochs)
+                                     epochs+1)
                                  )
 
     if not os.path.exists(save_dir_path):

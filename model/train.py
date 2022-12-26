@@ -133,7 +133,7 @@ def main(args):
                 ),
             )
 
-    device = torch.device("cuda")
+
     model.cuda()
 
     optimizer = torch.optim.AdamW(

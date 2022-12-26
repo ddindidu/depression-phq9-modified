@@ -24,9 +24,10 @@ from sklearn.metrics import (classification_report, f1_score, precision_score,
                              recall_score, accuracy_score, confusion_matrix)
 
 from dataset import DepressionDataset, SymptomDataset
-from utils import save_cp, format_time, compute_metrics, print_result, get_symptom_num
+from utils import save_cp, format_time, load_model, compute_metrics, print_result, get_symptom_num
 from bert_model import BertModelforBaseline, get_batch_bert_embedding
 from questionnaire.questionnaire_model import QuestionnaireModel
+from disease.disease_model import DiseaseModel
 
 
 def get_args():
@@ -55,7 +56,7 @@ def get_args():
     # parser.add_argument("--model_name_or_path", type=str, default="xlnet-base-cased")
 
     parser.add_argument("--max_seq_length", type=int, default=512)
-    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--lr', type=float, default=2e-6)
     parser.add_argument("--warmup_steps", type=int, default=1100)
@@ -94,9 +95,15 @@ def main(args):
     )
 
     # Prepare data
-    train_dataset = SymptomDataset(
+    train_dataset = DepressionDataset(
         args=args,
         mode='train',
+        tokenizer=tokenizer,
+    )
+
+    test_dataset = DepressionDataset(
+        args=args,
+        mode='test',
         tokenizer=tokenizer,
     )
 
@@ -107,10 +114,20 @@ def main(args):
         shuffle=True,
         pin_memory=True,
     )
+    test_dl = DataLoader(
+        dataset=test_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        pin_memory=True,
+    )
+    dataloaders = {
+        'train': train_dl,
+        'test': test_dl
+    }
 
     # Prepare models
     num_training_steps = args.epochs * (train_dataset.num_data / args.batch_size)
-
+    # BERT Encoder
     bert_model = BertModelforBaseline(
         args=args,
         tokenizer=tokenizer,
@@ -120,22 +137,31 @@ def main(args):
             num_labels=args.num_labels,
         ),
     )
-
-    question_model = QuestionnaireModel(
-        num_symptoms=get_symptom_num(args.task_name),
-        filter_sizes=args.kernel_size,
-    )
-
-    def count_parameter(model):
-        return sum(p.numel() for p in model.parameters())
-    print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))#, "ERROR in PARAMS COUNTING"
-    print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
+    # questionnaire model
+    question_model_path = os.path.join(args.output_dir,  # './checkpoints'
+                                 '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
+                                     'symptoms',
+                                     args.task_name,
+                                     args.model_name_or_path,
+                                     args.batch_size,
+                                     '49')
+                                 )
+    question_model = load_model(question_model_path)
+    # disease model (depression model in original paper)
+    disease_model = DiseaseModel(num_symptom=args.num_labels)
 
     bert_model.cuda()
     question_model.cuda()
+    disease_model.cuda()
+
+    def count_parameter(model):
+        return sum(p.numel() for p in model.parameters())
+    print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))
+    print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
+    print("DISEASE MODEL PARAMS: {}".format(count_parameter(disease_model)))
 
     optimizer = torch.optim.AdamW(
-        question_model.parameters(),
+        disease_model.parameters(),
         lr=args.lr,
         betas=args.betas,
         eps=args.eps,
@@ -158,87 +184,87 @@ def main(args):
         print("")
         print('======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs))
 
-        t0 = time.time()
+        phases = ['train', 'test'] if args.do_train else ['test']
 
-        # train starts
-        print('Training...')
-        total_loss = 0.0
-        loss_for_logging = 0.0
+        for phase in phases:
+            t0 = time.time()
 
-        for step, data in enumerate(tqdm(train_dl, desc='train', mininterval=0.01, leave=True), 0):
-            inputs = {
-                "input_ids": data['input_ids'].to(device),
-                "attention_mask": data['attention_mask'].to(device),
-                # "token_type_ids":data['token_type_ids'].to(device),
-            }
-            labels = data['labels'].to(device)
+            # train starts
+            print('{}ing...'.format(phase))
+            total_loss = 0.0
+            loss_for_logging = 0.0
 
-            optimizer.zero_grad()
+            all_preds = []
+            all_labels = []
+            for step, data in enumerate(tqdm(dataloaders[phase], desc=phase, mininterval=0.01, leave=True), 0):
+                inputs = {
+                    "input_ids": data['input_ids'].to(device),
+                    "attention_mask": data['attention_mask'].to(device),
+                    # "token_type_ids":data['token_type_ids'].to(device),
+                }
+                labels = data['labels'].to(device)
 
-            # foward
-            bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=True)
-            symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
-                                                                                    labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+                optimizer.zero_grad()
 
-            loss = loss_fn(symptom_scores.to(torch.float32), symptom_labels.to(torch.float32).to(device))
-            total_loss += loss.item()
-            loss_for_logging += loss.item()
+                # foward
+                with torch.no_grad():
+                    bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=False)
+                    symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
+                                                                                            labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+                with torch.set_grad_enabled(phase == 'train'):
+                    disease_output, disease_hidden = disease_model(symptom_hidden)  # (b, 1), (b, hidden_dim)
+                preds = [1 if prob.item() >= 0.5 else 0 for prob in disease_output]
 
-            loss.backward()
-            # torch.nn.utils.clip_grad_norm_(bert_model.parameters(), 1.0)
-            torch.nn.utils.clip_grad_norm_(question_model.parameters(), 1.0)
-            optimizer.step()
-            scheduler.step()
+                loss = loss_fn(disease_output.to(torch.float32), labels.unsqueeze(1).to(torch.float32))
+                total_loss += loss.item()
+                loss_for_logging += loss.item()
 
-            # logging
-            if step % args.logging_steps == 0 and not step == 0:
-                writer.add_scalar('Train/loss', (loss_for_logging / args.logging_steps), total_train_step)
-                loss_for_logging = 0
+                if phase == 'train':
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(disease_model.parameters(), 1.0)
+                    optimizer.step()
+                    scheduler.step()
 
-            elapsed = format_time(time.time() - t0)
-            print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.    Loss: {}'.format(step, len(train_dl), elapsed, loss))
+                # logging
+                if step % args.logging_steps == 0 and not step == 0:
+                    writer.add_scalar('{}/loss'.format(phase), (loss_for_logging / args.logging_steps), total_train_step)
+                    loss_for_logging = 0
+
+                #elapsed = format_time(time.time() - t0)
+                #print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.    Loss: {}'.format(step, len(dataloaders[phase]), elapsed, loss))
+
+                # when step ends
+                total_train_step += 1
+                #question_model.zero_grad()
+                all_preds += preds
+                all_labels += labels.tolist()
+                # import IPython; IPython.embed(); exit(1)
+
+            # epoch ends
+            # print results
+            print("total {} loss: {}".format(phase, total_loss / len(train_dl)))
+            train_result = compute_metrics(labels=all_labels, preds=all_preds)
+            print_result(train_result)
+            print("  {} epoch took: {:}".format(phase, format_time(time.time() - t0)))
 
             # save checkpoint
-            """
-            if total_train_step % args.saving_steps == 0 and not total_train_step==0 and total_train_step==2000:
-                save_cp(args, args.batch_size, epoch_i, 
-                    total_train_step,
-                    model, 
-                    optimizer, 
-                    scheduler, 
-                    tokenizer
-                )
-            """
-
-            # when step ends
-            total_train_step += 1
-            # question_model.zero_grad()
-            # import IPython; IPython.embed(); exit(1)
-
-        # epoch ends ... print results
-        print("total train loss: {}".format(total_loss / len(train_dl)))
-        # train_result = compute_metrics(labels=all_labels, preds=all_preds)
-        # print_result(train_result)
-        print("  Train epoch took: {:}".format(format_time(time.time() - t0)))
-
-        # save checkpoint
-        if (epoch_i+1) % 5 == 0:
-            save_cp(args,
-                    'question_model',
-                    args.batch_size,
-                    epoch_i,
-                    question_model,
-                    optimizer,
-                    scheduler,
-                    tokenizer
-                    )
+            if phase == 'train':
+                save_cp(args,
+                        'disease_model',
+                        args.batch_size,
+                        epoch_i,
+                        question_model,
+                        optimizer,
+                        scheduler,
+                        tokenizer
+                        )
 
     print("")
     print("Training complete")
 
 
 if __name__ == '__main__':
-    from train_question_model import get_args
+    from train_disease_model import get_args
 
     args = get_args()
     args.num_labels = get_symptom_num(args.task_name)

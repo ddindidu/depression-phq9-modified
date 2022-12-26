@@ -51,7 +51,7 @@ def generate_examples(mode, texta=[], textb=None, labels=[]):
 
 
 
-def f1_pre_rec_scalar(labels, preds, main_label=2):
+def f1_pre_rec_scalar(labels, preds, main_label=1):
     fpr, tpr, thresholds = roc_curve(labels, preds, pos_label=main_label)
                             #roc_curve(np.sort(labels), np.sort(preds), pos_label=main_label)
     return {
@@ -74,7 +74,7 @@ def f1_pre_rec_scalar(labels, preds, main_label=2):
 
 def compute_metrics(labels, preds):
     assert len(preds) == len(labels)
-    return f1_pre_rec_scalar(labels, preds)
+    return sum([1 if l == p else 0 for l, p in zip(labels, preds)])/len(preds)
     
 
 def simple_accuracy(labels, preds):

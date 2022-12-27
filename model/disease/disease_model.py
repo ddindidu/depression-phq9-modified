@@ -109,7 +109,7 @@ class DiseaseModel(nn.Module):
 
 
 class DiseaseAfterBertModel(nn.Module):
-    def __init__(self, embedding_dim=768, n_filters=50, filter_sizes=(2, 3, 4, 5, 6), output_dim=1, dropout=0.2, pool='k-max', k=5):
+    def __init__(self, embedding_dim=768, n_filters=50, filter_sizes=(2, 3, 4, 5, 6), output_dim=1, dropout=0.5, pool='k-max', k=5):
         # =================================================
         # ARGUMENTS
         # - embedding_dim (int): embedding dimension of bert output (default: 768)

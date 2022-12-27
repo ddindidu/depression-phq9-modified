@@ -63,11 +63,11 @@ def f1_pre_rec_scalar(labels, preds, main_label=1):
         "recall": recall_score(labels, preds, average=None)[main_label],
         "f1": f1_score(labels, preds, average=None)[main_label],
 
-        "precision_weighted": precision_score(labels, preds, average="weighted"),
-        "recall_weighted": recall_score(labels, preds, average="weighted"),
-        "f1_weighted": f1_score(labels, preds, average="weighted"),
+        # "precision_weighted": precision_score(labels, preds, average="weighted"),
+        # "recall_weighted": recall_score(labels, preds, average="weighted"),
+        # "f1_weighted": f1_score(labels, preds, average="weighted"),
 
-        "f1_macro": f1_score(labels, preds, average="macro"),
+        # "f1_macro": f1_score(labels, preds, average="macro"),
         "AUC": auc(fpr, tpr),
     }, confusion_matrix(labels, preds)
 

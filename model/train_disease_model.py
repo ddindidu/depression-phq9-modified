@@ -58,7 +58,7 @@ def get_args():
     parser.add_argument("--max_seq_length", type=int, default=512)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=2e-6)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument("--warmup_steps", type=int, default=1100)
     parser.add_argument('--weight_decay', type=float, default=2e-2)
     parser.add_argument('--logging_steps', type=int, default=10)
@@ -117,7 +117,7 @@ def main(args):
     test_dl = DataLoader(
         dataset=test_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
         pin_memory=True,
     )
     dataloaders = {

@@ -27,7 +27,7 @@ from dataset import DepressionDataset, SymptomDataset
 from utils import save_cp, format_time, load_model, compute_metrics, print_result, get_symptom_num
 from bert_model import BertModelforBaseline, get_batch_bert_embedding
 from questionnaire.questionnaire_model import QuestionnaireModel
-from disease.disease_model import DiseaseModel
+from disease.disease_model import DiseaseModel, DiseaseAfterBertModel
 
 
 def get_args():
@@ -72,8 +72,8 @@ def get_args():
 
     parser.add_argument("--overwrite_cache", action="store_true")
     parser.add_argument('--fast_dev_run', action='store_true', default=True)
-    parser.add_argument("--do_train", action="store_true", default=True)
-    parser.add_argument("--do_eval", action="store_true", default=True)
+    parser.add_argument("--do_train", action="store_true")  # only True when entered in an argument line
+    #parser.add_argument("--do_eval", action="store_true", default=True)
     parser.add_argument("--do_test", action="store_true", default=True)
 
     return parser.parse_args()
@@ -138,6 +138,7 @@ def main(args):
         ),
     )
     # questionnaire model
+    '''
     question_model_path = os.path.join(args.output_dir,  # './checkpoints'
                                  '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
                                      'symptoms',
@@ -147,17 +148,18 @@ def main(args):
                                      '49')
                                  )
     question_model = load_model(question_model_path)
+    '''
     # disease model (depression model in original paper)
-    disease_model = DiseaseModel(num_symptom=args.num_labels)
+    disease_model = DiseaseAfterBertModel()
 
     bert_model.cuda()
-    question_model.cuda()
+    #question_model.cuda()
     disease_model.cuda()
 
     def count_parameter(model):
         return sum(p.numel() for p in model.parameters())
     print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))
-    print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
+    #print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
     print("DISEASE MODEL PARAMS: {}".format(count_parameter(disease_model)))
 
     optimizer = torch.optim.AdamW(
@@ -209,10 +211,11 @@ def main(args):
                 # foward
                 with torch.no_grad():
                     bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=False)
-                    symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
-                                                                                            labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+                    #symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
+                    #                                                                        labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
                 with torch.set_grad_enabled(phase == 'train'):
-                    disease_output, disease_hidden = disease_model(symptom_hidden)  # (b, 1), (b, hidden_dim)
+                    #disease_output, disease_hidden = disease_model(symptom_hidden)  # (b, 1), (b, hidden_dim)
+                    disease_output, disease_hidden = disease_model(bert_output) # (b, 1), (b, hidden_dim)
                 preds = [1 if prob.item() >= 0.5 else 0 for prob in disease_output]
 
                 loss = loss_fn(disease_output.to(torch.float32), labels.unsqueeze(1).to(torch.float32))
@@ -243,8 +246,9 @@ def main(args):
             # epoch ends
             # print results
             print("total {} loss: {}".format(phase, total_loss / len(train_dl)))
-            train_result = compute_metrics(labels=all_labels, preds=all_preds)
+            train_result, conf_matrix = compute_metrics(labels=all_labels, preds=all_preds)
             print_result(train_result)
+            print("Confusion Matrix:\n", conf_matrix)
             print("  {} epoch took: {:}".format(phase, format_time(time.time() - t0)))
 
             # save checkpoint
@@ -253,7 +257,7 @@ def main(args):
                         'disease_model',
                         args.batch_size,
                         epoch_i,
-                        question_model,
+                        disease_model,
                         optimizer,
                         scheduler,
                         tokenizer

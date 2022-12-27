@@ -74,11 +74,11 @@ def f1_pre_rec_scalar(labels, preds, main_label=1):
 
 def compute_metrics(labels, preds):
     assert len(preds) == len(labels)
-    return sum([1 if l == p else 0 for l, p in zip(labels, preds)])/len(preds)
+    return f1_pre_rec_scalar(labels, preds)
     
 
 def simple_accuracy(labels, preds):
-    return (labels == preds).mean()
+    return sum([1 if l == p else 0 for l, p in zip(labels, preds)])/len(preds)
 
 
 def format_time(elapsed):

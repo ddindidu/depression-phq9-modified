@@ -245,22 +245,30 @@ def main(args):
 
             # epoch ends
             # print results
-            print("total {} loss: {}".format(phase, total_loss / len(train_dl)))
-            train_result, conf_matrix = compute_metrics(labels=all_labels, preds=all_preds)
-            print_result(train_result)
-            print("Confusion Matrix:\n", conf_matrix)
+            print("total {} loss: {}".format(phase, total_loss / len(dataloaders[phase])))
+
+            if (epoch_i == 2) and (phase == 'test'):
+                print("Test Result for TASK {} / MODEL {} / SEED {} / EP {} / FIVE FOLD {}".format(args.task_name,
+                                                                                                   args.model_name_or_path,
+                                                                                                   args.seed,
+                                                                                                   args.epochs,
+                                                                                                   args.five_fold_num))
+                train_result, conf_matrix = compute_metrics(labels=all_labels, preds=all_preds)
+                print_result(train_result)
+                print("Confusion Matrix:\n", conf_matrix)
             print("  {} epoch took: {:}".format(phase, format_time(time.time() - t0)))
 
             # save checkpoint
-            if phase == 'train':
-                save_cp(args,
-                        'disease_model',
-                        args.batch_size,
-                        epoch_i,
-                        disease_model,
-                        optimizer,
-                        scheduler,
-                        tokenizer
+            if (epoch_i == 2) and (phase == 'train'):
+                save_cp(args=args,
+                        model_name='disease_model',
+                        seed=args.seed,
+                        epochs=epoch_i,
+                        fold=args.five_fold_num,
+                        model=disease_model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        tokenizer=tokenizer
                         )
 
     print("")

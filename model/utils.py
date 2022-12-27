@@ -91,19 +91,45 @@ def print_result(test_result):
 		print('  Average {}:\t{}'.format(name, round(value*100, 4)))
 
 
-def save_cp(args, model_name, batch_size, epochs, model, optimizer, scheduler, tokenizer):
+def save_cp(args, model_name, epochs, fold, model, optimizer, scheduler, tokenizer, batch_size=None, seed=None):
+    m_name = ''
     if model_name == 'question_model':
         m_name = 'symptoms'
     elif model_name == 'disease_model':
         m_name = 'disease'
-    save_dir_path = os.path.join(args.output_dir,   # './checkpoints'
-                                 '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
-                                     m_name,
-                                     args.task_name,
-                                     args.model_name_or_path,
-                                     batch_size,
-                                     epochs+1)
-                                 )
+
+    if (batch_size is not None) and (seed is not None):
+        save_dir_path = os.path.join(args.output_dir,  # './checkpoints'
+                                     '{}/{}/{}/checkpoint_batch_{}_seed_{}_ep_{}_fivefold_{}/'.format(
+                                         m_name,
+                                         args.task_name,
+                                         args.model_name_or_path,
+                                         batch_size,
+                                         seed,
+                                         epochs + 1,
+                                         fold, )
+                                     )
+    elif batch_size is not None:
+        save_dir_path = os.path.join(args.output_dir,   # './checkpoints'
+                                     '{}/{}/{}/checkpoint_batch_{}_ep_{}_fivefold_{}/'.format(
+                                         m_name,
+                                         args.task_name,
+                                         args.model_name_or_path,
+                                         batch_size,
+                                         epochs+1,
+                                         fold,)
+                                     )
+
+    elif seed is not None:
+        save_dir_path = os.path.join(args.output_dir,  # './checkpoints'
+                                     '{}/{}/{}/checkpoint_seed_{}_ep_{}_fivefold_{}/'.format(
+                                         m_name,
+                                         args.task_name,
+                                         args.model_name_or_path,
+                                         seed,
+                                         epochs + 1,
+                                         fold, )
+                                     )
 
     if not os.path.exists(save_dir_path):
         os.makedirs(save_dir_path)

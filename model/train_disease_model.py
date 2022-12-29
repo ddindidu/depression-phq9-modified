@@ -80,7 +80,7 @@ def get_args():
 
 
 def main(args):
-    print(args)
+    #print(args)
     set_seed(args.seed)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     writer = SummaryWriter(args.log_dir)
@@ -189,6 +189,8 @@ def main(args):
         phases = ['train', 'test'] if args.do_train else ['test']
 
         for phase in phases:
+            if (phase == 'test') and (epoch_i != args.epochs-1):
+                continue
             t0 = time.time()
 
             # train starts
@@ -247,19 +249,19 @@ def main(args):
             # print results
             print("total {} loss: {}".format(phase, total_loss / len(dataloaders[phase])))
 
-            if (epoch_i == 2) and (phase == 'test'):
-                print("Test Result for TASK {} / MODEL {} / SEED {} / EP {} / FIVE FOLD {}".format(args.task_name,
+            if (epoch_i == args.epochs-1) and (phase == 'test'):
+                print("Test Result for\nTASK {} / MODEL {} / SEED {} / EP {} / FIVE FOLD {}".format(args.task_name,
                                                                                                    args.model_name_or_path,
                                                                                                    args.seed,
                                                                                                    args.epochs,
                                                                                                    args.five_fold_num))
                 train_result, conf_matrix = compute_metrics(labels=all_labels, preds=all_preds)
                 print_result(train_result)
-                print("Confusion Matrix:\n", conf_matrix)
+                #print("Confusion Matrix:\n", conf_matrix)
             print("  {} epoch took: {:}".format(phase, format_time(time.time() - t0)))
 
             # save checkpoint
-            if (epoch_i == 2) and (phase == 'train'):
+            if (epoch_i == args.epochs-1) and (phase == 'train'):
                 save_cp(args=args,
                         model_name='disease_model',
                         seed=args.seed,
@@ -275,10 +277,168 @@ def main(args):
     print("Training complete")
 
 
+def test_only(args):
+    #print(args)
+    set_seed(args.seed)
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    writer = SummaryWriter(args.log_dir)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print('  *** Device: ', device)
+    print('  *** Current cuda device:', args.gpu_id)
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name_or_path,
+        cache_dir=args.cache_dir,
+    )
+
+    # Prepare data
+
+    test_dataset = DepressionDataset(
+        args=args,
+        mode='test',
+        tokenizer=tokenizer,
+    )
+
+    # Load Data
+    test_dl = DataLoader(
+        dataset=test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        pin_memory=True,
+    )
+    dataloaders = {
+        'test': test_dl
+    }
+
+    # Prepare models
+    #num_training_steps = args.epochs * (train_dataset.num_data / args.batch_size)
+    # BERT Encoder
+    bert_model = BertModelforBaseline(
+        args=args,
+        tokenizer=tokenizer,
+        bert_model=AutoModel.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+            num_labels=args.num_labels,
+        ),
+    )
+    # questionnaire model
+    '''
+    question_model_path = os.path.join(args.output_dir,  # './checkpoints'
+                                 '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
+                                     'symptoms',
+                                     args.task_name,
+                                     args.model_name_or_path,
+                                     args.batch_size,
+                                     '49')
+                                 )
+    question_model = load_model(question_model_path)
+    '''
+    # disease model (depression model in original paper)
+    disease_model_path = os.path.join(args.output_dir,
+                                      '{}/{}/{}/checkpoint_seed_{}_ep_{}_fivefold_{}/'.format(
+                                         'disease',
+                                         args.task_name,
+                                         args.model_name_or_path,
+                                         args.seed,
+                                         args.epochs,
+                                         args.five_fold_num)
+                                     )
+    disease_model = load_model(disease_model_path)
+
+    bert_model.cuda()
+    #question_model.cuda()
+    disease_model.cuda()
+
+    def count_parameter(model):
+        return sum(p.numel() for p in model.parameters())
+    #print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))
+    #print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
+    #print("DISEASE MODEL PARAMS: {}".format(count_parameter(disease_model)))
+
+    loss_fn = nn.BCELoss()
+
+    # Training starts
+    total_train_step = 0
+    total_valid_step = 0
+
+    for epoch_i in range(1):
+        print("")
+        print('======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs))
+
+        phases = ['train', 'test'] if args.do_train else ['test']
+
+        for phase in phases:
+            t0 = time.time()
+
+            # train starts
+            print('{}ing...'.format(phase))
+            total_loss = 0.0
+            loss_for_logging = 0.0
+
+            all_preds = []
+            all_labels = []
+            for step, data in enumerate(tqdm(dataloaders[phase], desc=phase, mininterval=0.01, leave=True), 0):
+                inputs = {
+                    "input_ids": data['input_ids'].to(device),
+                    "attention_mask": data['attention_mask'].to(device),
+                    # "token_type_ids":data['token_type_ids'].to(device),
+                }
+                labels = data['labels'].to(device)
+
+                #optimizer.zero_grad()
+
+                # foward
+                with torch.no_grad():
+                    bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=False)
+                    #symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
+                    #                                                                        labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+                with torch.set_grad_enabled(phase == 'train'):
+                    #disease_output, disease_hidden = disease_model(symptom_hidden)  # (b, 1), (b, hidden_dim)
+                    disease_output, disease_hidden = disease_model(bert_output) # (b, 1), (b, hidden_dim)
+                preds = [1 if prob.item() >= 0.5 else 0 for prob in disease_output]
+
+                loss = loss_fn(disease_output.to(torch.float32), labels.unsqueeze(1).to(torch.float32))
+                total_loss += loss.item()
+                loss_for_logging += loss.item()
+
+                # logging
+                if step % args.logging_steps == 0 and not step == 0:
+                    writer.add_scalar('{}/loss'.format(phase), (loss_for_logging / args.logging_steps), total_train_step)
+                    loss_for_logging = 0
+
+                # when step ends
+                total_train_step += 1
+                #question_model.zero_grad()
+                all_preds += preds
+                all_labels += labels.tolist()
+                # import IPython; IPython.embed(); exit(1)
+
+            # epoch ends
+            # print results
+            print("total {} loss: {}".format(phase, total_loss / len(dataloaders[phase])))
+
+            print("Test Result\nTASK {} / MODEL {} / SEED {} / FIVE FOLD {}".format(args.task_name,
+                                                                                            args.model_name_or_path,
+                                                                                            args.seed,
+                                                                                            args.five_fold_num))
+            train_result, conf_matrix = compute_metrics(labels=all_labels, preds=all_preds)
+            print_result(train_result)
+            print("")
+            #print("Confusion Matrix:\n", conf_matrix)
+            #print("  {} epoch took: {:}".format(phase, format_time(time.time() - t0)))
+
+    #print("")
+    #print("Test complete")
+
 if __name__ == '__main__':
     from train_disease_model import get_args
 
     args = get_args()
     args.num_labels = get_symptom_num(args.task_name)
 
-    main(args)
+    if args.do_train:
+        main(args)
+    else:
+        test_only(args)

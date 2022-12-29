@@ -8,3 +8,16 @@ python run_disease_model.py --task_name 'anxiety' --gpu_id '0' --model 'bert'
 python run_disease_model.py --task_name 'bipolar' --gpu_id '0' --model 'bert'
 python run_disease_model.py --task_name 'anxiety' --gpu_id '0' --model 'roberta'
 python run_disease_model.py --task_name 'bipolar' --gpu_id '0' --model 'roberta'
+
+python run_disease_model.py --task_name 'bipolar' --gpu_id '1' --model 'bert'
+python run_disease_model.py --task_name 'bipolar' --gpu_id '0' --model 'roberta' --seed 86 97
+python run_disease_model.py --task_name 'bipolar' --gpu_id '1' --model 'roberta'
+
+
+python run_disease_model.py --task_name 'bpd' --gpu_id '0' --model 'roberta'  --seed 86 97
+python run_disease_model.py --task_name 'bpd' --gpu_id '0' --model 'bert'  --seed 42 53 64
+python run_disease_model.py --task_name 'bpd' --gpu_id '1' --model 'bert'  --seed 75 86 97
+
+python run_disease_model.py --task_name 'depression' --gpu_id '1' --model 'bert'
+python run_disease_model.py --task_name 'depression' --gpu_id '0' --model 'roberta'
+

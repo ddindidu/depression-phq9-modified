@@ -223,15 +223,15 @@ def main(args):
 
         # save checkpoint
         if (epoch_i+1) % 5 == 0:
-            save_cp(args,
-                    'question_model',
-                    args.batch_size,
-                    epoch_i,
-                    question_model,
-                    optimizer,
-                    scheduler,
-                    tokenizer
-                    )
+            save_cp(args=args,
+                    model_name='question_model',
+                    epochs=epoch_i,
+                    fold=0,
+                    model=question_model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    tokenizer=tokenizer,
+                    batch_size=args.batch_size,)
 
     print("")
     print("Training complete")

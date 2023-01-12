@@ -80,16 +80,35 @@ class DepressionDataset(Dataset):
         self.label_list = [str(i) for i in range(args.num_labels)]
         self.mode = mode
 
-        cached_features_file = os.path.join(
-            args.cache_dir if args.cache_dir is not None else args.data_dir,
-            "cached_{}_{}_{}_{}_{}".format(
-                mode,
-                tokenizer.__class__.__name__,
-                str(args.max_seq_length),
-                args.task_name,
-                str(args.five_fold_num)
-            ),
-        )
+        if mode == 'rsdd_test':
+            cached_features_file = os.path.join(
+                args.cache_dir if args.cache_dir is not None else args.data_dir,
+                "cached_rsdd_test_{}_{}_{}".format(
+                    tokenizer.__class__.__name__,
+                    str(args.max_seq_length),
+                    args.task_name,
+                )
+            )
+        elif mode == 'eRisk2018_test':
+            cached_features_file = os.path.join(
+                args.cache_dir if args.cache_dir is not None else args.data_dir,
+                "cached_eRisk2018_test_{}_{}_{}".format(
+                    tokenizer.__class__.__name__,
+                    str(args.max_seq_length),
+                    args.task_name,
+                )
+            )
+        else:
+            cached_features_file = os.path.join(
+                args.cache_dir if args.cache_dir is not None else args.data_dir,
+                "cached_{}_{}_{}_{}_{}".format(
+                    mode,
+                    tokenizer.__class__.__name__,
+                    str(args.max_seq_length),
+                    args.task_name,
+                    str(args.five_fold_num)
+                ),
+            )
         
         if os.path.exists(cached_features_file):
             print("*** Loading features from cached file {}".format(cached_features_file))
@@ -97,10 +116,15 @@ class DepressionDataset(Dataset):
             self.num_data=len(self.features['labels'])
 
         else:
-            self.data_path = args.data_path
-
             # train: 167,782 (15,984, 151,789) / valid: 23,968 (2,283, 21,685) / test: 47,938 (4,567, 43,371)
-            with open(self.data_path.format(self.args.task_name, str(self.args.five_fold_num), self.mode), 'r') as fp:
+            if mode == 'rsdd_test':
+                self.data_path = args.data_path.format('rsdd', self.args.task_name, 'test_concat_long_balanced')
+            elif mode == 'eRisk2018_test':
+                self.data_path = args.data_path.format('eRisk2018', self.args.task_name, 'total_long_balanced')
+            else:
+                self.data_path = args.data_path.format(self.args.task_name, str(self.args.five_fold_num), self.mode)
+
+            with open(self.data_path, 'r') as fp:
                 self.datas = json.load(fp)
 
             texts=[]
@@ -152,6 +176,8 @@ class DepressionDataset(Dataset):
 
     def get_labels(self):
         return self.labels
+
+
 
 
 if __name__ == '__main__':

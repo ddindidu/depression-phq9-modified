@@ -30,7 +30,7 @@ class SymptomDataset(Dataset):
             self.data_path = args.data_path.format( # ./dataset/{}/{}/{}.json
                 'symptom',
                 args.task_name,
-                'train'
+                mode
             )
 
             with open(self.data_path, 'r') as file:
@@ -42,11 +42,13 @@ class SymptomDataset(Dataset):
                 labels.append(self.datas[data][1])
             assert (idx+1) == len(texts) == len(labels), "the numbers of texts and labels are different!"
             self.num_data = len(texts)
+            #print(self.num_data)
 
             examples = generate_examples(mode=self.mode, texta=texts, labels=labels)
 
             self.label_list = [str(i) for i in range(args.num_labels)]
             label_map = {label: i for i, label in enumerate(self.label_list)}
+            #print(label_map)
             self.labels = [label_map[example.label] for example in examples]    # turn labels from str to int
             self.texts = texts
 

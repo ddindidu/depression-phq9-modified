@@ -24,7 +24,7 @@ from sklearn.metrics import (classification_report, f1_score, precision_score,
                              recall_score, accuracy_score, confusion_matrix)
 
 from dataset import DepressionDataset, SymptomDataset
-from utils import save_cp, format_time, compute_metrics, print_result, get_symptom_num
+from utils import save_cp, format_time, compute_metrics, print_result, get_symptom_num, load_model
 from bert_model import BertModelforBaseline, get_batch_bert_embedding
 from questionnaire.questionnaire_model import QuestionnaireModel
 
@@ -237,10 +237,133 @@ def main(args):
     print("Training complete")
 
 
+def test_only(args):
+    print(args)
+    set_seed(args.seed)
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    writer = SummaryWriter(args.log_dir)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print('  *** Device: ', device)
+    print('  *** Current cuda device:', args.gpu_id)
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name_or_path,
+        cache_dir=args.cache_dir,
+    )
+
+    # Prepare data
+    test_dataset = SymptomDataset(
+        args=args,
+        #mode='test',
+        mode='analysis',
+        tokenizer=tokenizer,
+    )
+
+    # Load Data
+    test_dl = DataLoader(
+        dataset=test_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        pin_memory=True,
+    )
+
+    # Prepare models
+    num_training_steps = args.epochs * (test_dataset.num_data / args.batch_size)
+
+    bert_model = BertModelforBaseline(
+        args=args,
+        tokenizer=tokenizer,
+        bert_model=AutoModel.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+            num_labels=args.num_labels,
+        ),
+    )
+
+    question_model_path = os.path.join(args.output_dir,  # './checkpoints'
+                                       '{}/{}/{}/checkpoint_batch_{}_ep_{}/'.format(
+                                           'symptoms',
+                                           args.task_name,
+                                           args.model_name_or_path,
+                                           args.batch_size,
+                                            args.epochs)
+                                       )
+    question_model = load_model(question_model_path)
+
+    def count_parameter(model):
+        return sum(p.numel() for p in model.parameters())
+    print("BERT MODEL PARAMS: {}".format(count_parameter(bert_model)))#, "ERROR in PARAMS COUNTING"
+    print("QUESTION MODEL PARAMS: {}".format(count_parameter(question_model)))
+
+    bert_model.cuda()
+    question_model.cuda()
+
+    loss_fn = nn.BCELoss()
+
+    # Training starts
+    total_train_step = 0
+    total_valid_step = 0
+
+    print("")
+    print('======== Epoch {:} / {:} ========'.format(1, args.epochs))
+
+    t0 = time.time()
+
+    # train starts
+    print('Training...')
+    total_loss = 0.0
+    loss_for_logging = 0.0
+
+    for step, data in enumerate(tqdm(test_dl, desc='test', mininterval=0.01, leave=True), 0):
+        inputs = {
+            "input_ids": data['input_ids'].to(device),
+            "attention_mask": data['attention_mask'].to(device),
+            # "token_type_ids":data['token_type_ids'].to(device),
+        }
+        labels = data['labels'].to(device)
+
+        # foward
+        bert_output = get_batch_bert_embedding(bert_model, inputs, trainable=True)
+        symptom_scores, symptom_labels, symptom_hidden = question_model.forward(bert_output,
+                                                                                labels)  # (b, num_symptom, 1), (b, num_symptom, 1), (b, 5)
+
+        label_shape = symptom_labels.size()
+        print("Symptom_Labels\n", symptom_scores.view(label_shape[:-1]))
+
+        loss = loss_fn(symptom_scores.to(torch.float32), symptom_labels.to(torch.float32).to(device))
+        total_loss += loss.item()
+        loss_for_logging += loss.item()
+
+        # logging
+        if step % args.logging_steps == 0 and not step == 0:
+            writer.add_scalar('Train/loss', (loss_for_logging / args.logging_steps), total_train_step)
+            loss_for_logging = 0
+
+        elapsed = format_time(time.time() - t0)
+        print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.    Loss: {}'.format(step, len(test_dl), elapsed, loss))
+
+
+        # when step ends
+        total_train_step += 1
+        # question_model.zero_grad()
+        # import IPython; IPython.embed(); exit(1)
+
+    # epoch ends ... print results
+    print("total teste loss: {}".format(total_loss / len(test_dl)))
+    # train_result = compute_metrics(labels=all_labels, preds=all_preds)
+    # print_result(train_result)
+    print("  Test epoch took: {:}".format(format_time(time.time() - t0)))
+
+    print("")
+    print("Testing complete")
+
+
 if __name__ == '__main__':
     from train_question_model import get_args
 
     args = get_args()
     args.num_labels = get_symptom_num(args.task_name)
 
-    main(args)
+    #main(args)
+    test_only(args)
